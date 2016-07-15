@@ -102,6 +102,7 @@ void start_conn( int epoll_fd, int num, const char* ip, int port )
 
 void close_conn( int epoll_fd, int sockfd )
 {
+    printf("close_conn \n");
     epoll_ctl( epoll_fd, EPOLL_CTL_DEL, sockfd, 0 );
     close( sockfd );
 }

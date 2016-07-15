@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <string>
+#include <vector>
 
 #include "log.h"
 
@@ -34,6 +35,20 @@ struct client_data
     sockaddr_in address;
     char buf[ BUFFER_SIZE ];
     int read_idx;
+};
+
+struct data_recv_t
+{
+   int m_platform;
+   string m_file_name;
+   string m_zxq_token;
+   string m_binary_data;
+   string m_src_type;
+   string m_app_type;
+   string m_uuid;
+   string m_business_type;
+   string m_date;
+   string m_vin;
 };
 
 class host
@@ -77,6 +92,7 @@ private:
     char* ip_address;
     int port;
     int Connections;
+    std::vector<data_recv_t> m_data_vector;
     
 };
 

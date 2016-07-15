@@ -290,6 +290,7 @@ int main( int argc, char* argv[] )
             }
             else if( events[i].events & EPOLLIN )
             {
+                printf( "new incoming data to be read \n" );
                 if( users[sockfd].read() )
                 {
                     pool->append( users + sockfd );
@@ -301,13 +302,13 @@ int main( int argc, char* argv[] )
             }
             else if( events[i].events & EPOLLOUT )
             {
+                printf("write event \n");
                 if( !users[sockfd].write() )
                 {
+                    printf("write success and close conn\n");
                     users[sockfd].close_conn();
                 }
             }
-            else
-            {}
         }
     }
 

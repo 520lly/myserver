@@ -1,3 +1,5 @@
+#include "json/json.h"
+#include <Poco/Base64Decoder.h>
 #include "http_conn.h"
 #include "common.h"
 
@@ -15,6 +17,20 @@ const char* doc_root = "/var/www/html";
 
 int http_conn::m_user_count = 0;
 int http_conn::m_epollfd = -1;
+
+http_conn::~http_conn()
+{
+    if ( nullptr != m_request_data )
+    {
+        delete[] m_request_data;
+        m_request_data = nullptr;
+    }
+    if ( nullptr != m_read_buf )
+    {
+        delete[] m_read_buf;
+        m_read_buf = nullptr;
+    }
+}
 
 void http_conn::close_conn( bool real_close )
 {
@@ -48,6 +64,7 @@ void http_conn::init()
     m_linger = false;
 
     m_method = GET;
+    m_request_type = NO_REQUEST;
     m_url = 0;
     m_version = 0;
     m_content_length = 0;
@@ -64,7 +81,8 @@ void http_conn::init()
     m_checked_idx = 0;
     m_read_idx = 0;
     m_write_idx = 0;
-    m_request_idx = 0;
+    m_parsed_header_idx = 0;
+    m_read_buf = new char[ REQUEST_BUFFER_SIZE ];
     memset( m_read_buf, '\0', READ_BUFFER_SIZE );
     memset( m_write_buf, '\0', WRITE_BUFFER_SIZE );
     m_request_data = new char[ REQUEST_BUFFER_SIZE ];
@@ -110,7 +128,8 @@ http_conn::LINE_STATUS http_conn::parse_line()
 
 bool http_conn::read()
 {
-    if( m_read_idx >= READ_BUFFER_SIZE )
+    printf("m_read_idx is %d \n",m_read_idx);
+    if( m_read_idx >= REQUEST_BUFFER_SIZE )
     {
         return false;
     }
@@ -118,9 +137,11 @@ bool http_conn::read()
     int bytes_read = 0;
     while( true )
     {
-        bytes_read = recv( m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0 );
+        bytes_read = recv( m_sockfd, m_read_buf + m_read_idx, REQUEST_BUFFER_SIZE - m_read_idx, 0 );
+        printf("bytes_read is %d \n",bytes_read);
         if ( bytes_read == -1 )
         {
+            printf("errno %d EAGAIN %d EWOULDBLOCK %d \n",errno, EAGAIN, EWOULDBLOCK);
             if( errno == EAGAIN || errno == EWOULDBLOCK )
             {
                 break;
@@ -131,9 +152,10 @@ bool http_conn::read()
         {
             return false;
         }
-
+        
         m_read_idx += bytes_read;
     }
+    printf("m_read_idx is %d \n",m_read_idx);
     return true;
 }
 
@@ -197,6 +219,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
 
 http_conn::HTTP_CODE http_conn::parse_headers( char* text )
 {
+    m_parsed_header_idx = m_parsed_header_idx; 
     printf("text: %s\n",text);
     if( text[ 0 ] == '\0' )
     {
@@ -300,7 +323,8 @@ http_conn::HTTP_CODE http_conn::parse_headers( char* text )
 
 http_conn::HTTP_CODE http_conn::parse_content( char* text )
 {
-    printf("parse_content text = %s  m_read_idx = %d  m_content_length = %d m_checked_idx = %d \n", text, m_read_idx, m_content_length, m_checked_idx); 
+    printf("parse_content text:  m_read_idx = %d  m_content_length = %d m_checked_idx = %d \n", m_read_idx, m_content_length, m_checked_idx); 
+    //if ( m_read_idx >= ( m_content_length + m_parsed_header_idx ) )
     if ( m_read_idx >= ( m_content_length + m_checked_idx ) )
     {
         if ( m_content_length > REQUEST_BUFFER_SIZE )
@@ -309,6 +333,7 @@ http_conn::HTTP_CODE http_conn::parse_content( char* text )
         }
         text[ m_content_length ] = '\0';
         strcpy ( m_request_data, text);
+        //printf("m_request_data %s \n", m_request_data);
 
         if ( m_method == GET  )
         {
@@ -318,6 +343,10 @@ http_conn::HTTP_CODE http_conn::parse_content( char* text )
         {
             return POST_REQUEST;
         }
+    }
+    else
+    {
+       return MORE_DATA_REQUEST;
     }
 
     return NO_REQUEST;
@@ -334,13 +363,14 @@ http_conn::HTTP_CODE http_conn::process_read()
     {
         text = get_line();
         m_start_line = m_checked_idx;
-        printf( "got 1 http line: %s >>> m_check_state: %d\n", text, m_check_state );
+        printf( "got 1 http line >>> m_check_state: %d\n", m_check_state );
 
         switch ( m_check_state )
         {
             case CHECK_STATE_REQUESTLINE:
             {
                 ret = parse_request_line( text );
+                m_request_type = ret;
                 printf("parse request line ret = %d \n",ret);
                 if ( ret == BAD_REQUEST )
                 {
@@ -351,6 +381,7 @@ http_conn::HTTP_CODE http_conn::process_read()
             case CHECK_STATE_HEADER:
             {
                 ret = parse_headers( text );
+                m_request_type = ret;
                 printf("parse_headers ret = %d\n",ret);
                 if ( ret == BAD_REQUEST )
                 {
@@ -365,13 +396,20 @@ http_conn::HTTP_CODE http_conn::process_read()
             case CHECK_STATE_CONTENT:
             {
                 ret = parse_content( text );
+                m_request_type = ret;
+                printf("parse_content ret = %d MORE_DATA_REQUEST %d \n",ret, MORE_DATA_REQUEST);
                 if ( ret == GET_REQUEST )
                 {
                     return do_request();
                 }
-                else if ( ret = POST_REQUEST )
+                else if ( ret == POST_REQUEST )
                 {
                     return do_request();
+                }
+                else if (ret == MORE_DATA_REQUEST )
+                {
+                    printf("return MORE_DATA_REQUEST \n");
+                    return MORE_DATA_REQUEST;
                 }
                 line_status = LINE_OPEN;
                 break;
@@ -393,7 +431,46 @@ http_conn::HTTP_CODE http_conn::do_request()
     {
         string tmp(m_request_data);
         string str_data = CCommon::getInstance()->url_decode(tmp);
-        printf("str_data = %s \n", str_data.c_str());
+        //printf("str_data = %s \n", str_data.c_str());
+        
+        string DataPrefix = tmp.substr(0,5);
+        printf("DataPrefix = %s \n",DataPrefix.c_str());
+        if(DataPrefix.compare("data=") != 0)
+        {
+            return BAD_REQUEST;
+        }
+
+        string data = str_data.substr(5,tmp.length()-5);
+        //printf("%s \n",data.c_str());
+        Json::Reader reader;
+        Json::Value root;
+        if(!reader.parse(data, root))
+        {
+            return BAD_REQUEST;
+        }
+
+        int platform = root["platform"].asInt();
+        printf("platform is %d\n",platform);
+        string fname = root["fileName"].asString();
+        printf("fname is %s\n",fname.c_str());
+        string zxqToken = root["zxqToken"].asString();
+        printf("zxqToken is %s\n",zxqToken.c_str());
+        string fbdata = root["fileBinaryData"].asString();
+        //printf("fbdata is %s\n",fbdata.c_str());
+        string srcType = root["srcType"].asString();
+        printf("srcType is %s\n",srcType.c_str());
+        string appType = root["appType"].asString();
+        printf("appType is %s\n",appType.c_str());
+        string uuid = root["uuid"].asString();
+        printf("uuid is %s\n",uuid.c_str());
+        string bType = root["businessType"].asString();
+        printf("bType is %s\n",bType.c_str());
+        string date = root["date"].asString();
+        printf("date is %s\n",date.c_str());
+        string vin = root["vin"].asString();
+        printf("vin is %s\n",vin.c_str());
+
+        return REQUEST_OK;
     }
     strcpy( m_real_file, doc_root );
     int len = strlen( doc_root );
@@ -433,6 +510,8 @@ bool http_conn::write()
     int temp = 0;
     int bytes_have_send = 0;
     int bytes_to_send = m_write_idx;
+    int retry_write_count = 10;
+    printf("bytes_to_send %d \n",bytes_to_send);
     if ( bytes_to_send == 0 )
     {
         CCommon::getInstance()->modfd( m_epollfd, m_sockfd, EPOLLIN );
@@ -440,9 +519,17 @@ bool http_conn::write()
         return true;
     }
 
-    while( 1 )
+    while( true && retry_write_count )
     {
-        temp = writev( m_sockfd, m_iv, m_iv_count );
+        if ( m_request_type == FILE_REQUEST )
+        {
+            temp = writev( m_sockfd, m_iv, m_iv_count );
+        }
+        else
+        {
+            temp = send( m_sockfd, m_write_buf, m_write_idx, 0 );
+        }
+        printf("temp %d \n",temp);
         if ( temp <= -1 )
         {
             if( errno == EAGAIN )
@@ -452,6 +539,11 @@ bool http_conn::write()
             }
             unmap();
             return false;
+        }
+        else if ( temp == 0 )
+        {
+            retry_write_count--;    
+            continue;
         }
 
         bytes_to_send -= temp;
@@ -591,6 +683,23 @@ bool http_conn::process_write( HTTP_CODE ret )
                 }
             }
         }
+        case REQUEST_OK:
+        {
+            add_status_line( 200, ok_200_title );
+            const char* ok_string = "<html><body></body></html>";
+            add_headers( strlen( ok_string ) );
+            Json::Value ret;
+            ret["data"] = "";
+            ret["req_id"] = "hah";
+            Json::FastWriter writer;
+            string out = writer.write(ret);
+            printf("out %s\n",out.c_str());
+            if ( ! add_content( out.c_str() ) )
+            {
+                return false;
+            }
+            return true;
+        }
         default:
         {
             return false;
@@ -606,13 +715,19 @@ bool http_conn::process_write( HTTP_CODE ret )
 void http_conn::process()
 {
     HTTP_CODE read_ret = process_read();
+    printf("process_read read_ret %d \n", read_ret);
     if ( read_ret == NO_REQUEST )
+    {
+        CCommon::getInstance()->modfd( m_epollfd, m_sockfd, EPOLLIN );
+        return;
+    }else if (read_ret == MORE_DATA_REQUEST )
     {
         CCommon::getInstance()->modfd( m_epollfd, m_sockfd, EPOLLIN );
         return;
     }
 
     bool write_ret = process_write( read_ret );
+    printf("write_ret %d \n",write_ret);
     if ( ! write_ret )
     {
         close_conn();
