@@ -18,7 +18,11 @@
 #include <sys/mman.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <string>
 #include "locker.h"
+
+
+
 
 class http_conn
 {
@@ -56,6 +60,7 @@ private:
     HTTP_CODE do_request();
     char* get_line() { return m_read_buf + m_start_line; }
     LINE_STATUS parse_line();
+    HTTP_CODE do_save_file(const char *str);
 
     void unmap();
     bool add_response( const char* format, ... );
@@ -89,6 +94,7 @@ private:
     HTTP_CODE m_request_type;
 
     char m_real_file[ FILENAME_LEN ];
+    //char *m_real_file;
     char* m_url;
     char* m_version;
     char* m_host;
@@ -104,6 +110,7 @@ private:
     char* m_upgrade_insecure_req;
     char* m_user_agent;
     char* m_file_address;
+    char* m_referer;
     struct stat m_file_stat;
     struct iovec m_iv[2];
     int m_iv_count;

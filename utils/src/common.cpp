@@ -10,14 +10,20 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <assert.h>
+#include <fstream>
+#include <sstream>
+#include <Poco/Base64Decoder.h>
+#include <zlib.h>
+#include <dirent.h>
+#include <stdlib.h>
 
 
 
-CCommon *CCommon::m_comm = nullptr;
+CCommon *CCommon::m_comm = NULL;
 
 CCommon *CCommon::getInstance()
 {
-    if(nullptr == m_comm)
+    if(NULL == m_comm)
     {
         m_comm = new CCommon();
         return m_comm;
@@ -31,10 +37,10 @@ CCommon::CCommon()
 
 CCommon::~CCommon()
 {
-    if(nullptr != m_comm)
+    if(NULL != m_comm)
     {
         delete m_comm;
-        m_comm = nullptr;
+        m_comm = NULL;
     }
 }
 
@@ -193,6 +199,41 @@ string CCommon::url_decode(const string &url)
 }
 
 
+bool CCommon::save_base64_to_gz(const string &fname, const string &str)
+{
+   if(str.length() <0 )
+   {
+        return false;
+   }
+    std::istringstream iss(str);   
+    std::ostringstream oss;
+    Poco::Base64Decoder decoder(iss);
+    std::copy(std::istreambuf_iterator< char >(decoder), std::istreambuf_iterator< char >(), std::ostreambuf_iterator< char >(oss));
+
+    DIR *dp;
+    string path = TRACK_LOG_DATA_PATH;
+    if ((dp = opendir(path.c_str())) == NULL)
+    {
+        printf("Cannot open path: %s\n", path.c_str());
+        string order = "mkdir -p " + path;
+        int value = system(order.c_str());
+        if (value != 0)
+        {
+            printf( "system error mkdir %s fail!\n", path.c_str());
+            return false;
+        }
+        else
+        {
+            printf("mkdir %s success \n", path.c_str());
+        }
+    }
+
+	string gz_file_path = TRACK_LOG_DATA_PATH + fname;
+    printf("gz_file_path %s \n", gz_file_path.c_str());
+    std::ofstream outfile(gz_file_path.c_str(), std::ofstream::binary); 
+    outfile.write(oss.str().c_str(), oss.str().length());
+    return true;
+}
 
 
 

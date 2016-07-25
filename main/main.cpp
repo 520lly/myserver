@@ -11,6 +11,7 @@
 
 #include "processpool.h"
 #include "common.h"
+#include "mongodb_client.h"
 
 #ifdef CGI_SERVER 
 #include "cgi_conn.h"
@@ -203,7 +204,9 @@ int main( int argc, char* argv[] )
     }
     const char* ip = balance_srv[0].m_hostname;
     int port = balance_srv[0].m_port;
-
+    
+    CMongodbClient::getInstance()->connectMongodb();
+    
    // const char* ip = argv[1];
    // int port = atoi( argv[2] );
     int listenfd = socket( PF_INET,SOCK_STREAM, 0 );
@@ -286,11 +289,12 @@ int main( int argc, char* argv[] )
             }
             else if( events[i].events & ( EPOLLRDHUP | EPOLLHUP | EPOLLERR ) )
             {
+                printf( "++++++++++++++++++++++ user[%d] close ++++++++++++++++\n", sockfd);
                 users[sockfd].close_conn();
             }
             else if( events[i].events & EPOLLIN )
             {
-                printf( "new incoming data to be read \n" );
+                printf( "++++++++++++++++++++++ user[%d] IN ++++++++++++++++\n", sockfd);
                 if( users[sockfd].read() )
                 {
                     pool->append( users + sockfd );
@@ -302,6 +306,7 @@ int main( int argc, char* argv[] )
             }
             else if( events[i].events & EPOLLOUT )
             {
+                printf( "++++++++++++++++++++++ user[%d] OUT ++++++++++++++++\n", sockfd);
                 printf("write event \n");
                 if( !users[sockfd].write() )
                 {

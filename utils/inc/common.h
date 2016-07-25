@@ -21,6 +21,7 @@
 #include "log.h"
 
 #define BUFFER_SIZE 1024
+#define TRACK_LOG_DATA_PATH "/home/jaycee/tmp/myserver/trackdata/"
 
 using std::string;
 
@@ -80,6 +81,9 @@ public:
 
     string url_encode(const string &url);
     string url_decode(const string &url);
+
+    bool save_base64_to_gz(const string &fname, const string &str);
+    
 
 private:
     char dechex2char(short int n);

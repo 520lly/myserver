@@ -2,6 +2,7 @@
 #include <Poco/Base64Decoder.h>
 #include "http_conn.h"
 #include "common.h"
+#include "mongodb_client.h"
 
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
@@ -12,7 +13,7 @@ const char* error_404_title = "Not Found";
 const char* error_404_form = "The requested file was not found on this server.\n";
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
-const char* doc_root = "/var/www/html";
+const char* doc_root = "/home/jaycee/mycode/server/C/server/myserver/web/root/www/html";
 
 
 int http_conn::m_user_count = 0;
@@ -20,16 +21,21 @@ int http_conn::m_epollfd = -1;
 
 http_conn::~http_conn()
 {
-    if ( nullptr != m_request_data )
+    if ( NULL != m_request_data )
     {
         delete[] m_request_data;
-        m_request_data = nullptr;
+        m_request_data = NULL;
     }
-    if ( nullptr != m_read_buf )
+    if ( NULL != m_read_buf )
     {
         delete[] m_read_buf;
-        m_read_buf = nullptr;
+        m_read_buf = NULL;
     }
+//    if ( NULL != m_real_file )
+//    {
+//        delete[] m_real_file;
+//        m_real_file = NULL;
+//    }
 }
 
 void http_conn::close_conn( bool real_close )
@@ -76,6 +82,7 @@ void http_conn::init()
     m_accept_datetime = 0;
     m_cache_ctl = 0;
     m_upgrade_insecure_req = 0;
+    m_referer = 0;
     m_user_agent = 0;
     m_start_line = 0;
     m_checked_idx = 0;
@@ -87,7 +94,8 @@ void http_conn::init()
     memset( m_write_buf, '\0', WRITE_BUFFER_SIZE );
     m_request_data = new char[ REQUEST_BUFFER_SIZE ];
     memset( m_request_data, '\0', REQUEST_BUFFER_SIZE );
-    memset( m_real_file, '\0', FILENAME_LEN );
+   // m_real_file = new char[ REQUEST_BUFFER_SIZE ];
+   // memset( m_real_file, '\0', REQUEST_BUFFER_SIZE);
 }
 
 http_conn::LINE_STATUS http_conn::parse_line()
@@ -162,7 +170,7 @@ bool http_conn::read()
 http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
 {
     m_url = strpbrk( text, " \t" );
-    printf("m_url: %s\n",m_url);
+    //printf("m_url: %s\n",m_url);
     //check request contain space or horizontal tab char
     if ( ! m_url )
     {
@@ -183,7 +191,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
     {
         return BAD_REQUEST;
     }
-    //printf("m_method: %d\n",m_method);
+    printf("m_method: %d\n",m_method);
 
     m_url += strspn( m_url, " \t" );
     m_version = strpbrk( m_url, " \t" );
@@ -193,7 +201,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
     }
     *m_version++ = '\0';
     m_version += strspn( m_version, " \t" );
-    //printf("m_version: %s\n",m_version);
+    printf("m_version: %s\n",m_version);
 
     if ( strcasecmp( m_version, "HTTP/1.1" ) != 0 )
     {
@@ -207,7 +215,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
         m_url = strchr( m_url, '/' );
     }
 
-    //printf("m_url: %s\n",m_url);
+    printf("m_url: %s\n",m_url);
     if ( ! m_url || m_url[ 0 ] != '/' )
     {
         return BAD_REQUEST;
@@ -311,6 +319,12 @@ http_conn::HTTP_CODE http_conn::parse_headers( char* text )
         text += 26;
         text += strspn( text, " \t" );
         m_upgrade_insecure_req = text;
+    }
+   else if ( strncasecmp( text, "Referer:", 8 ) == 0 )
+    {
+        text += 8;
+        text += strspn( text, " \t" );
+        m_referer = text;
     }
     else
     {
@@ -426,55 +440,16 @@ http_conn::HTTP_CODE http_conn::process_read()
 
 http_conn::HTTP_CODE http_conn::do_request()
 {
-    printf("do_request \n");
     if ( m_method == POST )
     {
-        string tmp(m_request_data);
-        string str_data = CCommon::getInstance()->url_decode(tmp);
-        //printf("str_data = %s \n", str_data.c_str());
-        
-        string DataPrefix = tmp.substr(0,5);
-        printf("DataPrefix = %s \n",DataPrefix.c_str());
-        if(DataPrefix.compare("data=") != 0)
-        {
-            return BAD_REQUEST;
-        }
-
-        string data = str_data.substr(5,tmp.length()-5);
-        //printf("%s \n",data.c_str());
-        Json::Reader reader;
-        Json::Value root;
-        if(!reader.parse(data, root))
-        {
-            return BAD_REQUEST;
-        }
-
-        int platform = root["platform"].asInt();
-        printf("platform is %d\n",platform);
-        string fname = root["fileName"].asString();
-        printf("fname is %s\n",fname.c_str());
-        string zxqToken = root["zxqToken"].asString();
-        printf("zxqToken is %s\n",zxqToken.c_str());
-        string fbdata = root["fileBinaryData"].asString();
-        //printf("fbdata is %s\n",fbdata.c_str());
-        string srcType = root["srcType"].asString();
-        printf("srcType is %s\n",srcType.c_str());
-        string appType = root["appType"].asString();
-        printf("appType is %s\n",appType.c_str());
-        string uuid = root["uuid"].asString();
-        printf("uuid is %s\n",uuid.c_str());
-        string bType = root["businessType"].asString();
-        printf("bType is %s\n",bType.c_str());
-        string date = root["date"].asString();
-        printf("date is %s\n",date.c_str());
-        string vin = root["vin"].asString();
-        printf("vin is %s\n",vin.c_str());
-
+        do_save_file(m_request_data);
         return REQUEST_OK;
     }
     strcpy( m_real_file, doc_root );
     int len = strlen( doc_root );
     strncpy( m_real_file + len, m_url, FILENAME_LEN - len - 1 );
+    printf("file request fpath: %s\n",m_real_file);
+
     if ( stat( m_real_file, &m_file_stat ) < 0 )
     {
         return NO_RESOURCE;
@@ -518,10 +493,11 @@ bool http_conn::write()
         init();
         return true;
     }
+    printf("m_request_type :%d\n",m_request_type);
 
     while( true && retry_write_count )
     {
-        if ( m_request_type == FILE_REQUEST )
+        if ( m_request_type == GET_REQUEST )
         {
             temp = writev( m_sockfd, m_iv, m_iv_count );
         }
@@ -529,7 +505,7 @@ bool http_conn::write()
         {
             temp = send( m_sockfd, m_write_buf, m_write_idx, 0 );
         }
-        printf("temp %d \n",temp);
+        printf("retry_write_count: %d   temp %d \n",retry_write_count, temp);
         if ( temp <= -1 )
         {
             if( errno == EAGAIN )
@@ -550,7 +526,10 @@ bool http_conn::write()
         bytes_have_send += temp;
         if ( bytes_to_send <= bytes_have_send )
         {
-            unmap();
+            if (m_request_type == GET_REQUEST )
+            {
+                unmap();
+            }
             if( m_linger )
             {
                 init();
@@ -662,6 +641,7 @@ bool http_conn::process_write( HTTP_CODE ret )
         }
         case FILE_REQUEST:
         {
+            printf("FILE_REQUEST file size %d \n", (int)m_file_stat.st_size);
             add_status_line( 200, ok_200_title );
             if ( m_file_stat.st_size != 0 )
             {
@@ -735,4 +715,64 @@ void http_conn::process()
 
     CCommon::getInstance()->modfd( m_epollfd, m_sockfd, EPOLLOUT );
 }
+
+http_conn::HTTP_CODE http_conn::do_save_file(const char *str)
+{
+    string tmp(str);  
+    if(tmp.length() == 0)
+    {
+        return BAD_REQUEST;
+    }
+    string str_data = CCommon::getInstance()->url_decode(tmp);
+    //printf("str_data = %s \n", str_data.c_str());
+    
+    string DataPrefix = tmp.substr(0,5);
+    printf("DataPrefix = %s \n",DataPrefix.c_str());
+    if(DataPrefix.compare("data=") != 0)
+    {
+        return BAD_REQUEST;
+    }
+
+    string data = str_data.substr(5,tmp.length()-5);
+    //printf("%s \n",data.c_str());
+    Json::Reader reader;
+    Json::Value root;
+    if(!reader.parse(data, root))
+    {
+        return BAD_REQUEST;
+    }
+
+    int platform = root["platform"].asInt();
+    //printf("platform is %d\n",platform);
+    string fname = root["fileName"].asString();
+    //printf("fname is %s\n",fname.c_str());
+    string zxqToken = root["zxqToken"].asString();
+    //printf("zxqToken is %s\n",zxqToken.c_str());
+    string fbdata = root["fileBinaryData"].asString();
+    //printf("fbdata is %s\n",fbdata.c_str());
+    CCommon::getInstance()->save_base64_to_gz(fname, fbdata);
+    string srcType = root["srcType"].asString();
+    //printf("srcType is %s\n",srcType.c_str());
+    string appType = root["appType"].asString();
+    //printf("appType is %s\n",appType.c_str());
+    string uuid = root["uuid"].asString();
+    //printf("uuid is %s\n",uuid.c_str());
+    string bType = root["businessType"].asString();
+    //printf("bType is %s\n",bType.c_str());
+    string date = root["date"].asString();
+    //printf("date is %s\n",date.c_str());
+    string vin = root["vin"].asString();
+    //printf("vin is %s\n",vin.c_str());
+
+    mongo::BSONObjBuilder builder;
+    builder<<"vin"<<vin<<"uuid"<<uuid<<"platform"<<platform;
+    builder<<"zxqToken"<<zxqToken<<"fname"<<fname;
+    builder<<"srcType"<<srcType<<"appType"<<appType;
+    builder<<"bType"<<bType<<"date"<<date;
+
+    CMongodbClient::getInstance()->insert("zxq.nt", builder.obj());
+
+}
+
+
 

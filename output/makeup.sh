@@ -1,16 +1,20 @@
 #!/bin/bash
 # encoding: utf-8
 # Name  : makeup.sh
-# Descp : used for 
+# Descp : used for make myserver and run myserver 
 # Author: jaycee
 # Date  : 02/07/16 09:15:25
 VER=0.1
+################################################################
 
 function usage()
 {
-    echo "$basename [options -rm]
-            -r : make and run
-            -m : only make not run"
+    echo "usage: `basename $0 .sh` [options -rma] 
+            -h : help 
+            -r : only run program 
+            -m : only make not run 
+            -c : clean old temporary files 
+            -a : make and run"
 }
 
 function clean()
@@ -34,27 +38,42 @@ function makeonly()
     echo "------------------------ make new executable files ---------------------------"
     cmake ..
     make
+    echo "--------------------------------- [ done ] -----------------------------------"
 }
 
 function run()
 {
-    echo "--------------------------------- [ done ] -----------------------------------"
     ./myserver -f ../config.xml
 }
 
 if [ $# -eq 0 ]
 then
     usage
-else
-    if [ $1 == "-r" ]
-    then
-        makeonly
-        run 
-    fi
-    if [ $1 == "-m" ]
-    then
-        echo "make only"
-        makeonly
-    fi
 fi
+
+while getopts :hracm OPT; 
+do
+    case "$OPT" in
+        h)
+            usage
+            ;;
+        m)
+            makeonly
+            ;;
+        r)
+            run
+            ;;
+        a)
+            makeonly
+            run
+            ;;
+        c)
+            clean
+            ;;
+        \?)
+            usage
+            ;;
+    esac
+done
+
 
