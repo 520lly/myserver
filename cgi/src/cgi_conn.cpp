@@ -108,7 +108,7 @@ void CCgiConnection::process()
         else
         {
             //child process redirect std output to m_sockfd and excute CGI server
-            printf("execute CGI script \n");
+            printf("execute CGI script %s\n",m_buf);
             close(STDOUT_FILENO);
             dup(m_sockfd);
             //to do client request and response to client

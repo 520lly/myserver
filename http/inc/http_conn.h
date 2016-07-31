@@ -46,8 +46,8 @@ public:
     void init( int sockfd, const sockaddr_in& addr );
     void close_conn( bool real_close = true );
     void process();
-    bool read();
-    bool write();
+    bool http_read();
+    bool http_write();
 
 private:
     void init();
@@ -61,6 +61,8 @@ private:
     char* get_line() { return m_read_buf + m_start_line; }
     LINE_STATUS parse_line();
     HTTP_CODE do_save_file(const char *str);
+    HTTP_CODE do_cgi_request(const char *str);
+    HTTP_CODE do_file_request();
 
     void unmap();
     bool add_response( const char* format, ... );

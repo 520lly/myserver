@@ -13,7 +13,9 @@ const char* error_404_title = "Not Found";
 const char* error_404_form = "The requested file was not found on this server.\n";
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
-const char* doc_root = "/home/jaycee/mycode/server/C/server/myserver/web/root/www/html";
+const char* web_root = "/home/jaycee/mycode/server/C/server/myserver/web/root/www/html";
+const char* cgi_root = "/home/jaycee/mycode/server/C/server/myserver/cgi/scripts";
+const char* rt_root = "/home/jaycee/mycode/server/C/server/myserver/output/";
 
 
 int http_conn::m_user_count = 0;
@@ -134,7 +136,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
     return LINE_OPEN;
 }
 
-bool http_conn::read()
+bool http_conn::http_read()
 {
     printf("m_read_idx is %d \n",m_read_idx);
     if( m_read_idx >= REQUEST_BUFFER_SIZE )
@@ -445,30 +447,30 @@ http_conn::HTTP_CODE http_conn::do_request()
         do_save_file(m_request_data);
         return REQUEST_OK;
     }
-    strcpy( m_real_file, doc_root );
-    int len = strlen( doc_root );
-    strncpy( m_real_file + len, m_url, FILENAME_LEN - len - 1 );
-    printf("file request fpath: %s\n",m_real_file);
-
-    if ( stat( m_real_file, &m_file_stat ) < 0 )
+    if ( m_method == GET )
     {
-        return NO_RESOURCE;
+        if(strncasecmp( m_url, "/cgi" , 4) == 0)
+        {
+            m_url += 4;
+            strcpy( m_real_file, cgi_root );
+            int len = strlen( cgi_root );
+            strncpy( m_real_file + len, m_url, FILENAME_LEN - len - 1 );
+            printf("cgi file request fpath: %s\n",m_real_file);
+            return do_cgi_request(m_real_file);
+        } 
+        else if (strncasecmp( m_url, "/web", 4 ) == 0)
+        {
+            m_url += 4;
+            strcpy( m_real_file, web_root );
+            int len = strlen( web_root );
+            strncpy( m_real_file + len, m_url, FILENAME_LEN - len - 1 );
+            printf("web file request fpath: %s\n",m_real_file);
+            
+            return do_file_request();
+        }
+
     }
 
-    if ( ! ( m_file_stat.st_mode & S_IROTH ) )
-    {
-        return FORBIDDEN_REQUEST;
-    }
-
-    if ( S_ISDIR( m_file_stat.st_mode ) )
-    {
-        return BAD_REQUEST;
-    }
-
-    int fd = open( m_real_file, O_RDONLY );
-    m_file_address = ( char* )mmap( 0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0 );
-    close( fd );
-    return FILE_REQUEST;
 }
 
 void http_conn::unmap()
@@ -480,7 +482,7 @@ void http_conn::unmap()
     }
 }
 
-bool http_conn::write()
+bool http_conn::http_write()
 {
     int temp = 0;
     int bytes_have_send = 0;
@@ -661,7 +663,9 @@ bool http_conn::process_write( HTTP_CODE ret )
                 {
                     return false;
                 }
+                return true;
             }
+            break;
         }
         case REQUEST_OK:
         {
@@ -772,7 +776,95 @@ http_conn::HTTP_CODE http_conn::do_save_file(const char *str)
 
     CMongodbClient::getInstance()->insert("zxq.nt", builder.obj());
 
+    return REQUEST_OK;
 }
 
+http_conn::HTTP_CODE http_conn::do_cgi_request(const char *file_name)
+{
+    int ret = -1;
+    //check if the CGI server exit, which client request
+    if( access(file_name, F_OK) == -1 )
+    {
+        printf("file %s not accessable\n", file_name);
+        CCommon::getInstance()->removefd(m_epollfd, m_sockfd);
+        return NO_RESOURCE;
+    }
+    int pfd[2], nbytes;
+    int *read_fd = &pfd[0];
+    int *write_fd = &pfd[1];
+    char buf[1024];
+    memset(buf, '\0', 1024);
 
+    //fork child process to excute CGI server
+    ret = fork();
+    if(ret == -1)
+    {
+        printf("fork failure \n");
+        CCommon::getInstance()->removefd(m_epollfd, m_sockfd);
+        return FORBIDDEN_REQUEST;
+    }
+    else if (ret == 0)
+    {
+        close(*read_fd);  //close read fd in child thread 
+        //child process redirect std output to m_sockfd and excute CGI server
+        printf("execute CGI script %s\n",file_name);
+       // fflush(stdout);
+        //setvbuf(stdout, NULL, _IONBF, 0);
+        //int fd = open("cgi.html", (O_RDWR | O_CREAT), 0644);
+        //dup2(fd, STDOUT_FILENO);
+        //int backfd = dup(STDOUT_FILENO);
+        //close(STDOUT_FILENO);
+        //dup(m_sockfd);
+        //dup(*write_fd);
+        //FILE *fd = freopen("cgi.txt", "w", stdout);
+        //to do client request and response to client
+        fclose(stdout);
+        printf("HTTP/1.1 200 OK\r\n");
+        execl(file_name, file_name, (char *)0);
+        //int fd;
+        //dup2(fd, backfd);
+        //close(fd);
+        puts("puts");
+        freopen("/dev/tty", "w", stdout);
+        //dup2(backfd, STDOUT_FILENO);
+        //strcpy(m_real_file, rt_root);
+        //int len = strlen("cgi.html");
+        //strncpy(m_real_file+len, "cgi.html", FILENAME_LEN - len - 1);
+        printf("file is : %s\n",m_real_file);
+        do_file_request();
+        exit(0);
+        return REQUEST_OK;
+    }
+    else if( ret > 0 )
+    {
+        //only close parent connecion
+        //printf("close parent connecion \n");
+        //CCommon::getInstance()->removefd(m_epollfd, m_sockfd);
+        close(*write_fd);
+        nbytes = read(*write_fd, buf, 1024);
+        printf("pipe read nbytes %d \n", nbytes);
+    }
+}
 
+http_conn::HTTP_CODE http_conn::do_file_request()
+{
+    if ( stat( m_real_file, &m_file_stat ) < 0 )
+    {
+        return NO_RESOURCE;
+    }
+
+    if ( ! ( m_file_stat.st_mode & S_IROTH ) )
+    {
+        return FORBIDDEN_REQUEST;
+    }
+
+    if ( S_ISDIR( m_file_stat.st_mode ) )
+    {
+        return BAD_REQUEST;
+    }
+
+    int fd = open( m_real_file, O_RDONLY );
+    m_file_address = ( char* )mmap( 0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0 );
+    close( fd );
+    return FILE_REQUEST;
+}

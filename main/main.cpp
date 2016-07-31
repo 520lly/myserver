@@ -295,7 +295,7 @@ int main( int argc, char* argv[] )
             else if( events[i].events & EPOLLIN )
             {
                 printf( "++++++++++++++++++++++ user[%d] IN ++++++++++++++++\n", sockfd);
-                if( users[sockfd].read() )
+                if( users[sockfd].http_read() )
                 {
                     pool->append( users + sockfd );
                 }
@@ -308,7 +308,7 @@ int main( int argc, char* argv[] )
             {
                 printf( "++++++++++++++++++++++ user[%d] OUT ++++++++++++++++\n", sockfd);
                 printf("write event \n");
-                if( !users[sockfd].write() )
+                if( !users[sockfd].http_write() )
                 {
                     printf("write success and close conn\n");
                     users[sockfd].close_conn();
